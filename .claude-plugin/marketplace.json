@@ -1,0 +1,1 @@
+{ "name": "local-mods", "owner": { "name": "LeeEungJu" }, "plugins": [{ "name": "git-graph", "source": "./", "description": "대화창 옆 패널에 Git 커밋 그래프를 보여 줍니다" }] }
