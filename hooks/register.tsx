@@ -285,10 +285,13 @@ function drawing(graph: GraphData) {
   return drawn
 }
 
+// 앱이 임시 폴더에서 세션을 시작한 뒤 프로젝트로 옮겨도 따라가도록 git 은 언제나 프로젝트 루트에서 돌린다.
+const inProject = async ($: EngineInterface) => ({ cwd: await $.session.root() })
+
 async function refresh($: EngineInterface) {
   let next: GraphData
   try {
-    const { exitCode, stdout, stderr } = await $.process.run(LOG_ARGS)
+    const { exitCode, stdout, stderr } = await $.process.run(LOG_ARGS, await inProject($))
     next = exitCode === 0
       ? { raw: stdout, commits: parseLog(stdout) }
       : { raw: stderr, commits: [], error: stderr.trim() || 'git log 실패' }
@@ -319,7 +322,7 @@ async function selectFile($: EngineInterface, hash: string, path: string) {
   await $.ui.open({ id, title: `${path.split('/').pop() ?? path} (${hash.slice(0, 7)})` })
   await $.ui.open({ id: PANE, title: TITLE, focus: true })
   if (isOpen) return
-  const { stdout } = await $.process.run([...SHOW, '-U3', hash, '--', path])
+  const { stdout } = await $.process.run([...SHOW, '-U3', hash, '--', path], await inProject($))
   const diff = hunksOf(stdout)
   await update($, tabs, old => (old[id] ? { ...old, [id]: { hash, path, diff } } : old))
 }
@@ -329,11 +332,23 @@ export const register: Register = on => {
     await $.command.register({ name: 'git-graph', description: 'Git 커밋 그래프 패널을 엽니다' })
     await refresh($)
     $.clock.every(REFRESH_MS, () => refresh($))
-    // Git 저장소가 아닌 폴더의 세션에서는 패널을 띄우지 않는다(/git-graph 로는 열 수 있다).
-    if (!(await read($, data)).error) void $.ui.open({ id: PANE, title: TITLE })
+    // 언제나 띄운다. 앱이 임시 폴더에서 세션을 시작한 뒤 프로젝트로 옮기는 경우가 있어, 시작 때 git log 가 실패해도
+    // 패널을 열어 두면 폴더가 옮겨질 때나 다음 갱신 때 저장소를 읽게 되는 대로 그래프로 바뀐다.
+    void $.ui.open({ id: PANE, title: TITLE })
     await update($, detail, () => null)
     for (const id of Object.keys(await read($, tabs))) await $.ui.close({ id }).catch(() => undefined)
     await update($, tabs, () => ({}))
+    return next(e)
+  })
+
+  // 폴더가 옮겨지면 30초를 기다리지 않고 바로 다시 읽는다.
+  on('classic.CwdChanged', async ($, e, next) => {
+    await refresh($)
+    return next(e)
+  })
+
+  on('turn.start', async ($, e, next) => {
+    await refresh($)
     return next(e)
   })
 
@@ -405,6 +420,8 @@ export const register: Register = on => {
     const graph = await read($, data)
     const open = await read($, detail)
     const { Box, Text } = $.ui.resolve(e)
+    // 저장소가 아닌 폴더는 고장이 아니다 — 세션이 프로젝트로 옮겨지는 중일 수 있으니 안내만 한다.
+    if (graph.error?.includes('not a git repository')) return <Text dimColor>이 폴더에서 Git 저장소를 찾지 못했습니다. 프로젝트로 옮겨지면 자동으로 표시됩니다.</Text>
     if (graph.error) return <Text>{graph.error}</Text>
     if (graph.commits.length === 0) return <Text dimColor>커밋을 읽는 중입니다.</Text>
     if (e.surface === 'terminal') {

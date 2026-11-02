@@ -1,6 +1,6 @@
 {
   "name": "git-graph",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "대화창 옆 패널에 현재 프로젝트의 Git 커밋 그래프를 보여 줍니다",
   "types": "./types/index.d.ts"
 }
